@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Life Timeline Planner</title>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background:#f5f5f5; overflow:hidden; }
+    #app { display:flex; flex-direction:column; height:100vh; }
+
+    /* Header */
+    header {
+      background:#2c3e50; color:#fff; padding:15px 20px;
+      display:flex; justify-content:space-between; align-items:center;
+      box-shadow:0 2px 5px rgba(0,0,0,.1); z-index:100;
+    }
+    h1 { font-size:20px; font-weight:600; }
+    .controls { display:flex; gap:20px; align-items:center; }
+    .zoom-controls { display:flex; gap:10px; align-items:center; }
+    button {
+      background:#3498db; color:#fff; border:none; padding:8px 16px;
+      border-radius:4px; cursor:pointer; font-size:14px; transition:background .2s;
+    }
+    button:hover { background:#2980b9; }
+    button:active { transform:scale(.98); }
+    button#jump-today { background:#27ae60; }
+    button#jump-today:hover { background:#229954; }
+    button#load-data-btn { display:none; background:#8e44ad; }
+    button#load-data-btn:hover { background:#7d3c98; }
+    .zoom-level { font-size:14px; min-width:80px; text-align:center; }
+
+    .filters { display:flex; gap:15px; }
+    .filter-toggle { display:flex; align-items:center; gap:6px; cursor:pointer; user-select:none; }
+    .filter-toggle input { cursor:pointer; }
+
+    /* Timeline container */
+    #timeline-container { flex:1; overflow-y:auto; overflow-x:hidden; background:white; position:relative; }
+    #timeline { position:relative; width:100%; padding:40px 0 150px 0; }
+
+    /* Items */
+    .timeline-item {
+      position:relative; padding:20px 60px 20px 120px;
+      border-left:3px solid #3498db; margin-left:100px; min-height:60px;
+    }
+    .timeline-date {
+      position:absolute; left:-100px; width:90px; text-align:right; font-weight:600; color:#2c3e50;
+      background:#fff; padding-right:4px; z-index:2; /* Keep date above markers */
+    }
+
+    /* Natural markers (moved left, smaller, and under the date) */
+    .natural-marker {
+      position:absolute; left:-60px; width:36px; height:36px; border-radius:50%;
+      display:flex; align-items:center; justify-content:center; font-weight:700; color:#fff;
+      font-size:10px; text-align:center; line-height:1.1; cursor:pointer; transition:transform .2s;
+      z-index:1;
+    }
+    .natural-marker:hover { transform:scale(1.12); }
+    .natural-marker.full-moon { background:#f39c12; box-shadow:0 0 12px rgba(243,156,18,.45); }
+    .natural-marker.new-moon  { background:#34495e; box-shadow:0 0 12px rgba(52,73,94,.45); }
+    .natural-marker.equinox   { background:#27ae60; box-shadow:0 0 12px rgba(39,174,96,.45); }
+    .natural-marker.solstice  { background:#e74c3c; box-shadow:0 0 12px rgba(231,76,60,.45); }
+    .natural-marker.longest-day  { background:#f1c40f; box-shadow:0 0 12px rgba(241,196,15,.45); }
+    .natural-marker.shortest-day { background:#2c3e50; box-shadow:0 0 12px rgba(44,62,80,.45); }
+
+    /* Personal events */
+    .personal-event { background:#ecf0f1; border-radius:6px; padding:12px; margin:10px 0; cursor:pointer; transition:all .2s; border-left:4px solid #3498db; }
+    .personal-event:hover { background:#d5dbdb; transform:translateX(5px); }
+    .personal-event.point-event::before {
+      content:''; display:inline-block; width:8px; height:8px; border-radius:50%; background:#3498db; margin-right:8px; vertical-align:middle;
+    }
+    .personal-event.span-event { background:linear-gradient(to right, #3498db 3px, #ecf0f1 3px); border-left:none; }
+    .event-title { font-weight:600; color:#2c3e50; margin-bottom:4px; }
+    .event-tags { display:flex; gap:6px; flex-wrap:wrap; margin-top:6px; }
+    .tag { background:#3498db; color:white; padding:2px 8px; border-radius:12px; font-size:11px; }
+
+    /* Calendar markers */
+    .calendar-marker { background:#95a5a6; color:white; padding:8px 12px; border-radius:4px; margin:15px 0; font-weight:600; }
+    .calendar-marker.year  { background:#2c3e50; font-size:18px; padding:12px 16px; }
+    .calendar-marker.month { background:#34495e; font-size:16px; }
+    .calendar-marker.week  { background:#7f8c8d; font-size:14px; }
+
+    /* Day detail panel */
+    #day-detail { position:fixed; top:0; right:-420px; width:400px; height:100%; background:#fff;
+      box-shadow:-2px 0 8px rgba(0,0,0,.1); padding:20px; transition:right .25s ease; z-index:600; overflow-y:auto; }
+    #day-detail.open { right:0; }
+    .close-detail { position:absolute; top:10px; right:12px; font-size:24px; cursor:pointer; }
+    .detail-content h2 { margin-top:12px; margin-bottom:10px; }
+    .detail-content p { margin:10px 0; }
+
+    /* Tooltip */
+    .tooltip { position:absolute; display:none; background:rgba(0,0,0,.8); color:#fff; padding:6px 8px; font-size:12px; border-radius:4px; pointer-events:none; z-index:700; }
+
+    /* Legend (bottom-right) */
+    .legend { position:fixed; bottom:16px; right:16px; background:#fff; padding:10px 12px; border-radius:8px; box-shadow:0 2px 10px rgba(0,0,0,.1);
+      font-size:12px; opacity:.95; max-width:280px; max-height:50vh; overflow:auto; z-index:500; }
+    .legend.collapsed { padding:6px 10px; }
+    .legend-toggle { display:inline-block; margin-bottom:8px; cursor:pointer; font-weight:600; background:#eee; border-radius:4px; padding:4px 8px; }
+    .legend-item { display:flex; align-items:center; gap:8px; margin:4px 0; }
+    .legend-color { width:16px; height:16px; border-radius:50%; }
+    .info-message { background:#fffbe6; border:1px solid #ffe58f; color:#7a6a00; padding:10px 12px; border-radius:6px; margin:12px 20px; }
+
+    .hidden { display:none !important; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1>Life Timeline Planner</h1>
+      <div class="controls">
+        <div class="zoom-controls">
+          <button id="zoom-out">-</button>
+          <span class="zoom-level" id="zoom-level">Month</span>
+          <button id="zoom-in">+</button>
+          <button id="jump-today" title="Jump to today">Today</button>
+        </div>
+        <div class="filters">
+          <label class="filter-toggle"><input type="checkbox" id="filter-calendar" checked> Calendar</label>
+          <label class="filter-toggle"><input type="checkbox" id="filter-natural" checked> Natural</label>
+          <label class="filter-toggle"><input type="checkbox" id="filter-personal" checked> Personal</label>
+        </div>
+        <button id="load-data-btn">Load data file…</button>
+        <input type="file" id="file-picker" accept=".md,.txt" class="hidden" />
+      </div>
+    </header>
+
+    <div id="timeline-container">
+      <div id="timeline"><div class="loading">Loading timeline data...</div></div>
+    </div>
+
+    <div id="day-detail">
+      <div class="close-detail" onclick="closeDayDetail()">×</div>
+      <div class="detail-content"></div>
+    </div>
+
+    <div class="legend" id="legend">
+      <div class="legend-toggle" id="legend-toggle">Legend ▾</div>
+      <div id="legend-body">
+        <h3>Natural Events</h3>
+        <div class="legend-item"><div class="legend-color" style="background:#f39c12;"></div><span>Full Moon</span></div>
+        <div class="legend-item"><div class="legend-color" style="background:#34495e;"></div><span>New Moon</span></div>
+        <div class="legend-item"><div class="legend-color" style="background:#27ae60;"></div><span>Equinox</span></div>
+        <div class="legend-item"><div class="legend-color" style="background:#e74c3c;"></div><span>Solstice</span></div>
+        <div class="legend-item"><div class="legend-color" style="background:#f1c40f;"></div><span>Longest Day</span></div>
+        <div class="legend-item"><div class="legend-color" style="background:#2c3e50;"></div><span>Shortest Day</span></div>
+      </div>
+    </div>
+
+    <div class="tooltip" id="tooltip"></div>
+  </div>
+
+  <script>
+    // Natural events
+    const naturalEvents = {
+      fullMoons: ['2025-11-05','2025-12-04','2026-01-03','2026-02-01','2026-03-03','2026-04-01','2026-05-01','2026-05-31','2026-06-29','2026-07-29','2026-08-27','2026-09-26','2026-10-25','2026-11-24','2026-12-23'],
+      newMoons:  ['2025-11-19','2025-12-19','2026-01-18','2026-02-17','2026-03-18','2026-04-17','2026-05-16','2026-06-14','2026-07-14','2026-08-12','2026-09-10','2026-10-10','2026-11-08','2026-12-08','2027-01-07'],
+      equinoxes: ['2026-03-20','2026-09-22','2027-03-20','2027-09-22','2028-03-19'],
+      solstices: ['2025-12-21','2026-06-21','2026-12-21','2027-06-21','2027-12-21'],
+      longestDays: ['2026-06-21','2027-06-21','2028-06-20','2029-06-20'],
+      shortestDays: ['2025-12-21','2026-12-21','2027-12-21','2028-12-21']
+    };
+
+    // State
+    let personalEvents = [];
+    let zoomLevel = 2; // 0: All, 1: Year, 2: Month, 3: Week, 4: Day
+    const zoomLevels = ['All','Year','Month','Week','Day'];
+    let filters = { calendar:true, natural:true, personal:true };
+
+    // Date utils (local noon to avoid TZ drift)
+    function parseISODateLocal(iso) { const [y,m,d] = iso.split('-').map(Number); return new Date(y, m-1, d, 12, 0, 0, 0); }
+    function toISO(date) { const y=date.getFullYear(), m=String(date.getMonth()+1).padStart(2,'0'), d=String(date.getDate()).padStart(2,'0'); return `${y}-${m}-${d}`; }
+    function formatDate(date){ return toISO(date); }
+    function formatDateDisplay(date){ const M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']; return `${M[date.getMonth()]} ${date.getDate()}`; }
+    function getMonthName(i){ return ['January','February','March','April','May','June','July','August','September','October','November','December'][i]; }
+    function getWeekNumber(date){ const d=new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate())); const dn=d.getUTCDay()||7; d.setUTCDate(d.getUTCDate()+4-dn); const ys=new Date(Date.UTC(d.getUTCFullYear(),0,1)); return Math.ceil((((d-ys)/86400000)+1)/7); }
+    function startOfISOWeek(date){ const d=new Date(date.getFullYear(), date.getMonth(), date.getDate()); const day=(d.getDay()+6)%7; d.setDate(d.getDate()-day); d.setHours(0,0,0,0); return d; }
+    function endOfISOWeek(date){ const s=startOfISOWeek(date); const e=new Date(s); e.setDate(s.getDate()+6); return e; }
+    function formatRange(a,b){ const M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']; return a.getMonth()===b.getMonth() ? `${M[a.getMonth()]} ${a.getDate()}–${b.getDate()}` : `${M[a.getMonth()]} ${a.getDate()}–${M[b.getMonth()]} ${b.getDate()}`; }
+
+    // Init
+    document.addEventListener('DOMContentLoaded', () => { loadPersonalEvents(); setupEventListeners(); });
+
+    function setupEventListeners(){
+      document.getElementById('zoom-in').addEventListener('click', ()=>{ if(zoomLevel<4){ zoomLevel++; updateZoomDisplay(); renderTimeline(); }});
+      document.getElementById('zoom-out').addEventListener('click', ()=>{ if(zoomLevel>0){ zoomLevel--; updateZoomDisplay(); renderTimeline(); }});
+      document.getElementById('jump-today').addEventListener('click', scrollToToday);
+      document.getElementById('filter-calendar').addEventListener('change', e=>{ filters.calendar=e.target.checked; renderTimeline(); });
+      document.getElementById('filter-natural').addEventListener('change', e=>{ filters.natural=e.target.checked; renderTimeline(); });
+      document.getElementById('filter-personal').addEventListener('change', e=>{ filters.personal=e.target.checked; renderTimeline(); });
+
+      // Legend toggle
+      const legend = document.getElementById('legend');
+      document.getElementById('legend-toggle').addEventListener('click', () => {
+        legend.classList.toggle('collapsed');
+        const body = document.getElementById('legend-body');
+        const collapsed = legend.classList.contains('collapsed');
+        body.style.display = collapsed ? 'none' : 'block';
+        document.getElementById('legend-toggle').textContent = collapsed ? 'Legend ▸' : 'Legend ▾';
+      });
+
+      // File-picker fallback
+      const btn = document.getElementById('load-data-btn');
+      const picker = document.getElementById('file-picker');
+      btn.addEventListener('click', ()=> picker.click());
+      picker.addEventListener('change', async (e)=>{
+        const file = e.target.files && e.target.files[0];
+        if(!file) return;
+        const text = await file.text();
+        personalEvents = parseMarkdownEvents(text);
+        console.log('Loaded personal events via file picker:', personalEvents);
+        renderTimeline();
+      });
+    }
+
+    function updateZoomDisplay(){ document.getElementById('zoom-level').textContent = zoomLevels[zoomLevel]; }
+
+    function scrollToToday(){
+      const todayISO = toISO(new Date());
+      const el = document.querySelector(`[data-date="${todayISO}"]`);
+      if(el) el.scrollIntoView({ block:'start', behavior:'smooth' });
+      else alert('Today is not visible in the current timeline range.');
+    }
+
+    async function loadPersonalEvents(){
+      try {
+        const response = await fetch('personal-events.md');
+        if(!response.ok) throw new Error('HTTP '+response.status);
+        const text = await response.text();
+        personalEvents = parseMarkdownEvents(text);
+        console.log('Loaded personal events:', personalEvents);
+        renderTimeline();
+      } catch (err) {
+        console.error('Error loading personal events:', err);
+        const timeline = document.getElementById('timeline');
+        const msg = document.createElement('div');
+        msg.className = 'info-message';
+        msg.innerHTML = '<strong>Note:</strong> Couldn\'t load <code>personal-events.md</code> automatically. If you\'re opening this file directly from disk, some browsers block reading local files.<br><br>Use the <em>Load data file…</em> button to select your <code>personal-events.md</code>.';
+        timeline.innerHTML = '';
+        timeline.appendChild(msg);
+        document.getElementById('load-data-btn').style.display = 'inline-block';
+        renderTimeline();
+      }
+    }
+
+    function parseMarkdownEvents(markdown){
+      const events = []; const lines = markdown.split('\n');
+      let current = null, inContent = false;
+      for(let i=0;i<lines.length;i++){
+        const line = lines[i].trim();
+        if(!line || line === '# Personal Events Data File' || line === '# Personal Events Data File (Sample)') continue;
+
+        // ## YYYY-MM-DD | Title
+        if(line.startsWith('## ') && line.includes('|')){
+          if(current) events.push(current);
+          const header = line.substring(3).trim();
+          const parts = header.split('|').map(p=>p.trim());
+          current = { date: parts[0], endDate: null, title: parts[1] || 'Untitled', description:'', tags:[], content:'', type:'point' };
+          inContent = false;
+          continue;
+        }
+        if(!current) continue;
+
+        if(line.startsWith('End:')) { current.endDate = line.substring(4).trim(); current.type='span'; continue; }
+        if(line.startsWith('Description:')) { current.description = line.substring(12).trim(); continue; }
+        if(line.startsWith('Tags:')) { const t=line.substring(5).trim(); current.tags = t ? t.split(',').map(x=>x.trim()) : []; continue; }
+        if(line === '---') { inContent = true; continue; }
+        if(inContent) current.content += line + '\n';
+      }
+      if(current) events.push(current);
+      return events;
+    }
+
+    function renderTimeline(){
+      const timeline = document.getElementById('timeline');
+      timeline.innerHTML = '';
+
+      // Use local-parse dates (no TZ drift)
+      const startDate = parseISODateLocal('2025-10-29');
+      const endDate   = parseISODateLocal('2027-04-29');
+
+      const days = []; let d = new Date(startDate);
+      while(d <= endDate){ days.push(new Date(d)); d.setDate(d.getDate()+1); }
+
+      if(zoomLevel===0) renderAllView(timeline, days);
+      else if(zoomLevel===1) renderYearView(timeline, days);
+      else if(zoomLevel===2) renderMonthView(timeline, days);
+      else if(zoomLevel===3) renderWeekView(timeline, days);
+      else renderDayView(timeline, days);
+    }
+
+    function renderAllView(timeline, days){
+      const years = {};
+      days.forEach(day=>{ const y=day.getFullYear(); (years[y]||(years[y]=[])).push(day); });
+      Object.keys(years).sort().forEach(year=>{
+        if(filters.calendar){ const mk=document.createElement('div'); mk.className='calendar-marker year'; mk.textContent=year; timeline.appendChild(mk); }
+        years[year].forEach(day=>{
+          const dateStr = formatDate(day);
+          const ev = getEventsForDate(dateStr);
+          if(ev.natural.length>0 || ev.personal.length>0){
+            const item = createTimelineItem(day, dateStr);
+            addNaturalMarkers(item, ev.natural);
+            addPersonalEvents(item, ev.personal, true);
+            timeline.appendChild(item);
+          }
+        });
+      });
+    }
+
+    function renderYearView(timeline, days){
+      const years = {};
+      days.forEach(day=>{ const y=day.getFullYear(), m=day.getMonth(); (years[y]||(years[y]={}))[m]||(years[y][m]=[]); years[y][m].push(day); });
+      Object.keys(years).sort().forEach(year=>{
+        if(filters.calendar){ const ymk=document.createElement('div'); ymk.className='calendar-marker year'; ymk.textContent=year; timeline.appendChild(ymk); }
+        Object.keys(years[year]).sort((a,b)=>a-b).forEach(month=>{
+          if(filters.calendar){ const mm=document.createElement('div'); mm.className='calendar-marker month'; mm.textContent=getMonthName(parseInt(month)); timeline.appendChild(mm); }
+          years[year][month].forEach(day=>{
+            const dateStr = formatDate(day);
+            const ev = getEventsForDate(dateStr);
+            if(ev.natural.length>0 || ev.personal.length>0){
+              const item = createTimelineItem(day, dateStr);
+              addNaturalMarkers(item, ev.natural);
+              addPersonalEvents(item, ev.personal, true);
+              timeline.appendChild(item);
+            }
+          });
+        });
+      });
+    }
+
+    function renderMonthView(timeline, days){
+      let curMonth=null, curYear=null;
+      days.forEach(day=>{
+        const y=day.getFullYear(), m=day.getMonth();
+        if(filters.calendar && (y!==curYear || m!==curMonth)){
+          if(y!==curYear){ const ymk=document.createElement('div'); ymk.className='calendar-marker year'; ymk.textContent=y; timeline.appendChild(ymk); curYear=y; }
+          const mmk=document.createElement('div'); mmk.className='calendar-marker month'; mmk.textContent=getMonthName(m); timeline.appendChild(mmk); curMonth=m;
+        }
+        const dateStr = formatDate(day);
+        const ev = getEventsForDate(dateStr);
+        if(ev.natural.length>0 || ev.personal.length>0){
+          const item = createTimelineItem(day, dateStr);
+          addNaturalMarkers(item, ev.natural);
+          addPersonalEvents(item, ev.personal, true);
+          timeline.appendChild(item);
+        }
+      });
+    }
+
+    // ISO-week grouped week view with clear labels
+    function renderWeekView(timeline, days){
+      const groups=[]; let i=0;
+      while(i<days.length){
+        const d=days[i]; const weekNum=getWeekNumber(d);
+        const ws=startOfISOWeek(d), we=endOfISOWeek(d);
+        const wd=[]; for(; i<days.length; i++){ const cd=days[i]; if(startOfISOWeek(cd).getTime()!==ws.getTime()) break; wd.push(cd); }
+        groups.push({weekNum, ws, we, wd});
+      }
+      groups.forEach(({weekNum, ws, we, wd})=>{
+        if(filters.calendar){
+          const needsYear=(ws.getFullYear()!==we.getFullYear());
+          const wlbl = `W${String(weekNum).padStart(2,'0')}${needsYear? ` ${we.getFullYear()}`:''} (${formatRange(ws,we)})`;
+          const wm=document.createElement('div'); wm.className='calendar-marker week'; wm.textContent=wlbl; timeline.appendChild(wm);
+        }
+        wd.forEach(day=>{
+          const dateStr = formatDate(day);
+          const ev = getEventsForDate(dateStr);
+          if(ev.natural.length===0 && ev.personal.length===0) return;
+          const item = createTimelineItem(day, dateStr);
+          addNaturalMarkers(item, ev.natural);
+          addPersonalEvents(item, ev.personal, true);
+          timeline.appendChild(item);
+        });
+      });
+    }
+
+    function renderDayView(timeline, days){
+      let curWeek=null, curMonth=null, curYear=null;
+      days.forEach(day=>{
+        const y=day.getFullYear(), m=day.getMonth(), w=getWeekNumber(day);
+        if(filters.calendar){
+          if(y!==curYear){ const ymk=document.createElement('div'); ymk.className='calendar-marker year'; ymk.textContent=y; timeline.appendChild(ymk); curYear=y; }
+          if(m!==curMonth){ const mmk=document.createElement('div'); mmk.className='calendar-marker month'; mmk.textContent=getMonthName(m); timeline.appendChild(mmk); curMonth=m; }
+          if(w!==curWeek){
+            const ws=startOfISOWeek(day), we=endOfISOWeek(day);
+            const needsYear=(ws.getFullYear()!==we.getFullYear());
+            const wlbl=`W${String(w).padStart(2,'0')}${needsYear? ` ${we.getFullYear()}`:''} (${formatRange(ws,we)})`;
+            const wmk=document.createElement('div'); wmk.className='calendar-marker week'; wmk.textContent=wlbl; timeline.appendChild(wmk); curWeek=w;
+          }
+        }
+        const dateStr = formatDate(day);
+        const item = createTimelineItem(day, dateStr);
+        const ev = getEventsForDate(dateStr);
+        addNaturalMarkers(item, ev.natural);
+        addPersonalEvents(item, ev.personal, false);
+        timeline.appendChild(item);
+      });
+    }
+
+    function createTimelineItem(date, dateStr){
+      const item=document.createElement('div'); item.className='timeline-item'; item.dataset.date=dateStr;
+      const dl=document.createElement('div'); dl.className='timeline-date'; dl.textContent=formatDateDisplay(date); item.appendChild(dl);
+      return item;
+    }
+
+    function addNaturalMarkers(item, events){
+      if(!filters.natural) return;
+      events.forEach(e=>{
+        const el=document.createElement('div');
+        el.className=`natural-marker ${e.class}`;
+        el.textContent=e.label; el.title=e.title;
+        el.addEventListener('mouseenter', ev=>showTooltip(ev, e.title));
+        el.addEventListener('mouseleave', hideTooltip);
+        item.appendChild(el);
+      });
+    }
+
+    function addPersonalEvents(item, events, titleOnly){
+      if(!filters.personal) return;
+      events.forEach(ev=>{
+        const el=document.createElement('div'); el.className=`personal-event ${ev.type}-event`;
+        const title=document.createElement('div'); title.className='event-title'; title.textContent=ev.title; el.appendChild(title);
+        if(!titleOnly && ev.description){ const d=document.createElement('div'); d.textContent=ev.description; d.style.fontSize='13px'; d.style.color='#7f8c8d'; el.appendChild(d); }
+        if(ev.tags && ev.tags.length){ const tags=document.createElement('div'); tags.className='event-tags'; ev.tags.forEach(t=>{ const s=document.createElement('span'); s.className='tag'; s.textContent=t; tags.appendChild(s); }); el.appendChild(tags); }
+        if(ev.description){ el.addEventListener('mouseenter', e=>showTooltip(e, ev.description)); el.addEventListener('mouseleave', hideTooltip); }
+        if(ev.content && !titleOnly){ el.addEventListener('click', ()=>openDayDetail(ev)); el.style.cursor='pointer'; }
+        item.appendChild(el);
+      });
+    }
+
+    function getEventsForDate(dateStr){
+      const natural=[], personal=[];
+      if(naturalEvents.fullMoons.includes(dateStr))  natural.push({ class:'full-moon',   label:'FM',    title:'Full Moon' });
+      if(naturalEvents.newMoons.includes(dateStr))   natural.push({ class:'new-moon',    label:'NM',    title:'New Moon' });
+      if(naturalEvents.equinoxes.includes(dateStr))  natural.push({ class:'equinox',     label:'EQ',    title:'Equinox' });
+      if(naturalEvents.solstices.includes(dateStr))  natural.push({ class:'solstice',    label:'SOL',   title:'Solstice' });
+      if(naturalEvents.longestDays.includes(dateStr))  natural.push({ class:'longest-day', label:'LONG',  title:'Longest Day' });
+      if(naturalEvents.shortestDays.includes(dateStr)) natural.push({ class:'shortest-day',label:'SHORT', title:'Shortest Day' });
+
+      personalEvents.forEach(ev=>{
+        if(ev.date === dateStr) personal.push(ev);
+        else if(ev.type==='span' && ev.endDate){
+          const s=parseISODateLocal(ev.date), e=parseISODateLocal(ev.endDate), c=parseISODateLocal(dateStr);
+          if(c>=s && c<=e) personal.push(ev);
+        }
+      });
+      return { natural, personal };
+    }
+
+    function showTooltip(e, text){ const t=document.getElementById('tooltip'); t.textContent=text; t.style.display='block'; t.style.left=(e.pageX+10)+'px'; t.style.top=(e.pageY+10)+'px'; }
+    function hideTooltip(){ document.getElementById('tooltip').style.display='none'; }
+
+    function openDayDetail(ev){
+      const p=document.getElementById('day-detail'), c=p.querySelector('.detail-content');
+      let html = `<h2>${ev.title}</h2>`;
+      html += `<p><strong>Date:</strong> ${ev.date}${ev.endDate? ` to ${ev.endDate}`:''}</p>`;
+      if(ev.description) html += `<p>${ev.description}</p>`;
+      if(ev.tags && ev.tags.length) html += `<p><strong>Tags:</strong> ${ev.tags.join(', ')}</p>`;
+      if(ev.content){ html += `<hr style="margin:20px 0;">` + markdownToHtml(ev.content); }
+      c.innerHTML = html; p.classList.add('open');
+    }
+    function closeDayDetail(){ document.getElementById('day-detail').classList.remove('open'); }
+
+    function markdownToHtml(md){
+      let h = md;
+      h = h.replace(/### (.*)/g, '<h3>$1</h3>');
+      h = h.replace(/## (.*)/g, '<h2>$1</h2>');
+      h = h.replace(/# (.*)/g, '<h1>$1</h1>');
+      h = h.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+      h = h.replace(/\*(.*?)\*/g, '<em>$1</em>');
+      h = h.replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2" target="_blank">$1</a>');
+      h = h.replace(/\n\n/g, '</p><p>');
+      return '<p>' + h + '</p>';
+    }
+  </script>
+</body>
+</html>
